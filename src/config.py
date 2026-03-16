@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 from src.models import (
+    AIConfig,
     AppConfig,
     CategoryConfig,
     DatabaseConfig,
@@ -85,12 +86,22 @@ def _parse_config(raw: dict) -> AppConfig:
     log_raw = raw.get("logging", {})
     logging_cfg = LoggingConfig(level=log_raw.get("level", LoggingConfig.level))
 
+    ai_raw = raw.get("ai", {})
+    ai = AIConfig(
+        enabled=ai_raw.get("enabled", False),
+        api_key=ai_raw.get("api_key", ""),
+        base_url=ai_raw.get("base_url", AIConfig.base_url),
+        model=ai_raw.get("model", AIConfig.model),
+        request_timeout=ai_raw.get("request_timeout", AIConfig.request_timeout),
+    )
+
     return AppConfig(
         scraper=scraper,
         categories=categories,
         notifications=notifications,
         database=database,
         logging=logging_cfg,
+        ai=ai,
     )
 
 
@@ -103,6 +114,10 @@ def _apply_env_overrides(config: AppConfig) -> None:
         config.logging.level = level.upper()
     if db_path := os.environ.get("DB_PATH"):
         config.database.path = db_path
+    if ai_key := os.environ.get("AI_API_KEY"):
+        config.ai.api_key = ai_key
+    if ai_enabled := os.environ.get("AI_ENABLED"):
+        config.ai.enabled = ai_enabled.lower() in ("true", "1", "yes")
 
 
 def _validate(config: AppConfig) -> None:
@@ -118,6 +133,9 @@ def _validate(config: AppConfig) -> None:
             raise ValueError(f"Category '{cat.name}' missing ntfy_topic")
         if cat.filters.min_salary < 0:
             raise ValueError(f"Category '{cat.name}' has negative min_salary")
+
+    if config.ai.enabled and not config.ai.api_key:
+        raise ValueError("AI is enabled but ai.api_key is not set (config or AI_API_KEY env var)")
 
     if config.scraper.page_size < 1 or config.scraper.page_size > 100:
         raise ValueError("page_size must be between 1 and 100")

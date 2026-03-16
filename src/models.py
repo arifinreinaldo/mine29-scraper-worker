@@ -82,9 +82,19 @@ class LoggingConfig:
 
 
 @dataclass
+class AIConfig:
+    enabled: bool = False
+    api_key: str = ""
+    base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: str = "qwen-plus"
+    request_timeout: int = 30
+
+
+@dataclass
 class AppConfig:
     scraper: ScraperConfig = field(default_factory=ScraperConfig)
     categories: list[CategoryConfig] = field(default_factory=list)
     notifications: NotificationConfig = field(default_factory=NotificationConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    ai: AIConfig = field(default_factory=AIConfig)

@@ -46,5 +46,12 @@ database:
   path: "/data/jobs.db"
   retention_days: 90
 
+ai:
+  enabled: false
+  api_key: ""  # or set AI_API_KEY env var
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  model: "qwen-plus"
+  request_timeout: 30
+
 logging:
   level: "INFO"

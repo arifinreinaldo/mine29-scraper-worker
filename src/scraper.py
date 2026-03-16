@@ -71,15 +71,16 @@ class MCFScraper:
         visa_jobs: list[Job] = []
 
         for i, job in enumerate(jobs):
-            if i > 0:
-                time.sleep(self._config.delay_between_requests)
+            description = job.description
+            if not description:
+                if i > 0:
+                    time.sleep(self._config.delay_between_requests)
+                description = self.fetch_job_details(job.uuid)
+                if description is None:
+                    logger.warning("Could not fetch details for %s, skipping visa check", job.uuid)
+                    continue
+                job.description = description
 
-            description = self.fetch_job_details(job.uuid)
-            if description is None:
-                logger.warning("Could not fetch details for %s, skipping visa check", job.uuid)
-                continue
-
-            job.description = description
             if any(p.search(description) for p in patterns):
                 job.visa_matched = True
                 visa_jobs.append(job)
