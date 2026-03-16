@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.mycareersfuture.gov.sg)",
+      "Bash(curl:*)",
+      "WebFetch(domain:api.mycareersfuture.gov.sg)",
+      "WebFetch(domain:github.com)",
+      "Bash(python:*)",
+      "Bash(gh search:*)",
+      "Bash(pip install:*)"
+    ]
+  }
+}

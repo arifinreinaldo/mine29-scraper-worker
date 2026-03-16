@@ -1,0 +1,50 @@
+scraper:
+  base_url: "https://api.mycareersfuture.gov.sg"
+  page_size: 100
+  max_pages: 5
+  request_timeout: 30
+  delay_between_requests: 2.0
+
+categories:
+  - name: "Information Technology"
+    api_category: "Information Technology"
+    ntfy_topic: "mine29-it-jobs"
+    filters:
+      employment_types: ["Full Time", "Contract"]
+      position_levels: []
+      min_salary: 5000
+      visa_keywords:
+        - "Employment Pass"
+        - "EP"
+        - "S Pass"
+        - "work visa"
+        - "visa sponsorship"
+        - "foreigner"
+
+  - name: "Marketing"
+    api_category: "Marketing / Public Relations"
+    ntfy_topic: "mine29-marketing-jobs"
+    filters:
+      employment_types: ["Full Time", "Contract"]
+      position_levels: []
+      min_salary: 5000
+      visa_keywords:
+        - "Employment Pass"
+        - "EP"
+        - "S Pass"
+        - "work visa"
+        - "visa sponsorship"
+        - "foreigner"
+
+notifications:
+  ntfy_server: "https://ntfy.sh"
+  ntfy_token: ""
+  priority: "default"
+  batch_size: 10
+
+database:
+  path: "/data/jobs.db"
+  retention_days: 90
+
+logging:
+  level: "INFO"

@@ -1,0 +1,37 @@
+{
+  "total": 2,
+  "results": [
+    {
+      "_source": {
+        "uuid": "abc-123",
+        "title": "Software Engineer",
+        "postedCompany": {
+          "name": "Tech Corp"
+        },
+        "salary": {
+          "minimum": 6000,
+          "maximum": 10000
+        },
+        "positionLevel": "Executive",
+        "employmentType": "Full Time",
+        "newPostingDate": "2026-03-15T00:00:00Z"
+      }
+    },
+    {
+      "_source": {
+        "uuid": "def-456",
+        "title": "Marketing Manager",
+        "postedCompany": {
+          "name": "Ad Agency Pte Ltd"
+        },
+        "salary": {
+          "minimum": 7000,
+          "maximum": 12000
+        },
+        "positionLevel": "Manager",
+        "employmentType": "Full Time",
+        "newPostingDate": "2026-03-14T00:00:00Z"
+      }
+    }
+  ]
+}

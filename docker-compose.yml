@@ -1,0 +1,12 @@
+services:
+  scraper:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - scraper-data:/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - .env
+
+volumes:
+  scraper-data:
