@@ -96,13 +96,13 @@ class MCFScraper:
             "search": "",
             "limit": self._config.page_size,
             "page": page,
-            "sortBy": [{"field": "new_posting_date", "order": "desc"}],
+            "sortBy": ["new_posting_date"],
             "categories": [category.api_category],
         }
 
         filters = category.filters
         if filters.min_salary > 0:
-            body["salary"] = {"min": filters.min_salary}
+            body["salary"] = filters.min_salary
         if filters.employment_types:
             body["employmentTypes"] = filters.employment_types
         if filters.position_levels:
@@ -112,24 +112,31 @@ class MCFScraper:
 
     def _parse_job(self, result: dict, category: str) -> Job | None:
         try:
-            metadata = result.get("_source", result)
-            uuid = metadata.get("uuid", "")
+            uuid = result.get("uuid", "")
             if not uuid:
                 return None
 
-            salary = metadata.get("salary", {}) or {}
+            salary = result.get("salary", {}) or {}
+            metadata = result.get("metadata", {}) or {}
+
+            position_levels = result.get("positionLevels", [])
+            position_level = position_levels[0]["position"] if position_levels else ""
+
+            employment_types = result.get("employmentTypes", [])
+            employment_type = employment_types[0]["employmentType"] if employment_types else ""
+
             return Job(
                 uuid=uuid,
-                title=metadata.get("title", "Unknown"),
-                company=metadata.get("postedCompany", {}).get("name", "Unknown"),
+                title=result.get("title", "Unknown"),
+                company=result.get("postedCompany", {}).get("name", "Unknown"),
                 category=category,
                 min_salary=int(salary.get("minimum", 0) or 0),
                 max_salary=int(salary.get("maximum", 0) or 0),
-                position_level=metadata.get("positionLevel", ""),
-                employment_type=metadata.get("employmentType", ""),
+                position_level=position_level,
+                employment_type=employment_type,
                 posting_date=metadata.get("newPostingDate", ""),
             )
-        except (KeyError, TypeError, ValueError) as e:
+        except (KeyError, TypeError, ValueError, IndexError) as e:
             logger.warning("Failed to parse job result: %s", e)
             return None
 

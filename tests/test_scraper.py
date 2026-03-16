@@ -85,20 +85,11 @@ class TestMCFScraperSearch:
 
     @respx.mock
     def test_search_paginates(self):
-        page0 = {
-            "total": 150,
-            "results": [
-                {"_source": {"uuid": f"job-{i}", "title": "J", "postedCompany": {"name": "C"}, "salary": {"minimum": 6000, "maximum": 8000}, "positionLevel": "Exec", "employmentType": "Full Time", "newPostingDate": "2026-03-15"}}
-                for i in range(100)
-            ],
-        }
-        page1 = {
-            "total": 150,
-            "results": [
-                {"_source": {"uuid": f"job-{i}", "title": "J", "postedCompany": {"name": "C"}, "salary": {"minimum": 6000, "maximum": 8000}, "positionLevel": "Exec", "employmentType": "Full Time", "newPostingDate": "2026-03-15"}}
-                for i in range(100, 150)
-            ],
-        }
+        def _job(i):
+            return {"uuid": f"job-{i}", "title": "J", "postedCompany": {"name": "C"}, "salary": {"minimum": 6000, "maximum": 8000}, "positionLevels": [{"position": "Exec"}], "employmentTypes": [{"employmentType": "Full Time"}], "metadata": {"newPostingDate": "2026-03-15"}}
+
+        page0 = {"total": 150, "results": [_job(i) for i in range(100)]}
+        page1 = {"total": 150, "results": [_job(i) for i in range(100, 150)]}
 
         route = respx.post("https://api.mycareersfuture.gov.sg/v2/search").mock(
             side_effect=[
@@ -143,11 +134,11 @@ class TestMCFScraperSearch:
 
         request = respx.calls[0].request
         body = json.loads(request.content)
-        assert body["salary"] == {"min": 7000}
+        assert body["salary"] == 7000
         assert body["employmentTypes"] == ["Full Time", "Part Time"]
         assert body["positionLevels"] == ["Executive", "Manager"]
         assert body["categories"] == ["Information Technology"]
-        assert body["sortBy"] == [{"field": "new_posting_date", "order": "desc"}]
+        assert body["sortBy"] == ["new_posting_date"]
 
 
 class TestMCFScraperVisaFilter:
