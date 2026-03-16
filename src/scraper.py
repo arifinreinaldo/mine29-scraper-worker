@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import html
 import logging
 import re
 import time
+from urllib.parse import quote_plus
 
 import httpx
 
@@ -10,17 +12,33 @@ from src.models import CategoryConfig, Job, ScraperConfig
 
 logger = logging.getLogger(__name__)
 
+BASE_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+# LinkedIn experience level filter (f_E)
+EXPERIENCE_LEVELS = {
+    "internship": "1",
+    "entry": "2",
+    "associate": "3",
+    "mid-senior": "4",
+    "director": "5",
+    "executive": "6",
+}
+
 MAX_RETRIES = 3
-RETRY_BASE_DELAY = 2.0
+RETRY_BASE_DELAY = 3.0
 
 
-class MCFScraper:
+class LinkedInScraper:
     def __init__(self, config: ScraperConfig) -> None:
         self._config = config
         self._client = httpx.Client(
-            base_url=config.base_url,
             timeout=config.request_timeout,
-            headers={"Content-Type": "application/json"},
+            headers={"User-Agent": USER_AGENT},
+            follow_redirects=True,
         )
 
     def search(self, category: CategoryConfig) -> list[Job]:
@@ -30,126 +48,103 @@ class MCFScraper:
             if page > 0:
                 time.sleep(self._config.delay_between_requests)
 
-            body = self._build_search_body(category, page)
-            data = self._post_with_retry("/v2/search", body)
-            if data is None:
+            start = page * self._config.page_size
+            url = self._build_url(category, start)
+            html_content = self._get_with_retry(url)
+            if html_content is None:
                 logger.error("Failed to fetch page %d for %s", page, category.name)
                 break
 
-            results = data.get("results", [])
-            if not results:
+            jobs = self._parse_jobs(html_content, category.name)
+            if not jobs:
                 logger.debug("No more results on page %d for %s", page, category.name)
                 break
 
-            jobs = [self._parse_job(r, category.name) for r in results]
-            jobs = [j for j in jobs if j is not None]
             all_jobs.extend(jobs)
-
-            total = data.get("total", 0)
-            fetched = (page + 1) * self._config.page_size
-            if fetched >= total:
-                break
 
         logger.info("Fetched %d jobs for %s", len(all_jobs), category.name)
         return all_jobs
 
-    def fetch_job_details(self, uuid: str) -> str | None:
-        data = self._get_with_retry(f"/v2/jobs/{uuid}")
-        if data is None:
-            return None
-        return data.get("description", "") or ""
-
-    def filter_visa_jobs(
-        self,
-        jobs: list[Job],
-        visa_keywords: list[str],
-    ) -> list[Job]:
-        if not visa_keywords:
-            return jobs
-
-        patterns = [re.compile(re.escape(kw), re.IGNORECASE) for kw in visa_keywords]
-        visa_jobs: list[Job] = []
-
-        for i, job in enumerate(jobs):
-            description = job.description
-            if not description:
-                if i > 0:
-                    time.sleep(self._config.delay_between_requests)
-                description = self.fetch_job_details(job.uuid)
-                if description is None:
-                    logger.warning("Could not fetch details for %s, skipping visa check", job.uuid)
-                    continue
-                job.description = description
-
-            if any(p.search(description) for p in patterns):
-                job.visa_matched = True
-                visa_jobs.append(job)
-                logger.debug("Visa keyword match: %s @ %s", job.title, job.company)
-
-        logger.info(
-            "Visa filter: %d/%d jobs matched keywords", len(visa_jobs), len(jobs)
-        )
-        return visa_jobs
-
-    def _build_search_body(self, category: CategoryConfig, page: int) -> dict:
-        body: dict = {
-            "search": "",
-            "limit": self._config.page_size,
-            "page": page,
-            "sortBy": ["new_posting_date"],
-            "categories": [category.api_category],
+    def _build_url(self, category: CategoryConfig, start: int) -> str:
+        params = {
+            "keywords": quote_plus(category.keywords),
+            "location": quote_plus(category.location),
+            "f_SB2": "4",  # visa sponsorship
+            "start": str(start),
+            "sortBy": "DD",  # most recent
         }
 
-        filters = category.filters
-        if filters.min_salary > 0:
-            body["salary"] = filters.min_salary
-        if filters.employment_types:
-            body["employmentTypes"] = filters.employment_types
-        if filters.position_levels:
-            body["positionLevels"] = filters.position_levels
+        if category.experience_level:
+            levels = [
+                EXPERIENCE_LEVELS[lvl.strip().lower()]
+                for lvl in category.experience_level.split(",")
+                if lvl.strip().lower() in EXPERIENCE_LEVELS
+            ]
+            if levels:
+                params["f_E"] = ",".join(levels)
 
-        return body
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        return f"{BASE_URL}?{query}"
 
-    def _parse_job(self, result: dict, category: str) -> Job | None:
-        try:
-            uuid = result.get("uuid", "")
-            if not uuid:
-                return None
+    def _parse_jobs(self, html_content: str, category: str) -> list[Job]:
+        jobs: list[Job] = []
 
-            salary = result.get("salary", {}) or {}
-            metadata = result.get("metadata", {}) or {}
+        card_pattern = re.compile(
+            r'data-entity-urn="urn:li:jobPosting:(\d+)"', re.DOTALL
+        )
+        cards = html_content.split("</li>")
 
-            position_levels = result.get("positionLevels", [])
-            position_level = position_levels[0]["position"] if position_levels else ""
+        for card in cards:
+            id_match = card_pattern.search(card)
+            if not id_match:
+                continue
 
-            employment_types = result.get("employmentTypes", [])
-            employment_type = employment_types[0]["employmentType"] if employment_types else ""
-
-            return Job(
-                uuid=uuid,
-                title=result.get("title", "Unknown"),
-                company=result.get("postedCompany", {}).get("name", "Unknown"),
-                category=category,
-                min_salary=int(salary.get("minimum", 0) or 0),
-                max_salary=int(salary.get("maximum", 0) or 0),
-                position_level=position_level,
-                employment_type=employment_type,
-                posting_date=metadata.get("newPostingDate", ""),
+            job_id = id_match.group(1)
+            title = self._extract(card, r'class="base-search-card__title[^"]*"[^>]*>(.*?)<')
+            company = self._extract(
+                card,
+                r'class="base-search-card__subtitle[^"]*"[^>]*>\s*(?:<a[^>]*>)?(.*?)(?:</a>)?<',
             )
-        except (KeyError, TypeError, ValueError, IndexError) as e:
-            logger.warning("Failed to parse job result: %s", e)
-            return None
+            location = self._extract(card, r'class="job-search-card__location[^"]*"[^>]*>(.*?)<')
+            url = self._extract(card, r'<a[^>]*class="base-card__full-link[^"]*"[^>]*href="([^"]+)"')
+            date = self._extract(card, r'<time[^>]*datetime="([^"]+)"')
+            salary = self._extract(card, r'class="job-search-card__salary-info[^"]*"[^>]*>(.*?)<')
 
-    def _post_with_retry(self, path: str, body: dict) -> dict | None:
-        return self._request_with_retry("POST", path, json=body)
+            if not title or not job_id:
+                continue
 
-    def _get_with_retry(self, path: str) -> dict | None:
-        return self._request_with_retry("GET", path)
+            # Clean URL — remove tracking params
+            if url:
+                url = html.unescape(url).split("?")[0]
 
-    def _request_with_retry(self, method: str, path: str, **kwargs) -> dict | None:
+            jobs.append(
+                Job(
+                    uuid=job_id,
+                    title=self._clean(title),
+                    company=self._clean(company) or "Unknown",
+                    category=category,
+                    location=self._clean(location) or "Singapore",
+                    posting_date=date or "",
+                    url=url or f"https://www.linkedin.com/jobs/view/{job_id}",
+                    salary=self._clean(salary),
+                )
+            )
+
+        return jobs
+
+    def _extract(self, text: str, pattern: str) -> str:
+        match = re.search(pattern, text, re.DOTALL)
+        return match.group(1) if match else ""
+
+    def _clean(self, text: str) -> str:
+        text = html.unescape(text)
+        text = re.sub(r"<[^>]+>", "", text)
+        return text.strip()
+
+    def _get_with_retry(self, url: str) -> str | None:
         for attempt in range(MAX_RETRIES):
             try:
-                response = self._client.request(method, path, **kwargs)
+                response = self._client.get(url)
                 if response.status_code == 429:
                     delay = RETRY_BASE_DELAY * (2**attempt)
                     logger.warning("Rate limited, retrying in %.1fs", delay)
@@ -157,13 +152,14 @@ class MCFScraper:
                     continue
                 if response.status_code >= 500:
                     delay = RETRY_BASE_DELAY * (2**attempt)
-                    logger.warning(
-                        "Server error %d, retrying in %.1fs", response.status_code, delay
-                    )
+                    logger.warning("Server error %d, retrying in %.1fs", response.status_code, delay)
                     time.sleep(delay)
                     continue
+                if response.status_code == 400 or response.status_code == 404:
+                    logger.debug("No results (HTTP %d)", response.status_code)
+                    return None
                 response.raise_for_status()
-                return response.json()
+                return response.text
             except httpx.HTTPStatusError as e:
                 logger.error("HTTP error: %s", e)
                 return None
@@ -171,13 +167,13 @@ class MCFScraper:
                 delay = RETRY_BASE_DELAY * (2**attempt)
                 logger.warning("Request error: %s, retrying in %.1fs", e, delay)
                 time.sleep(delay)
-        logger.error("All retries exhausted for %s %s", method, path)
+        logger.error("All retries exhausted for %s", url)
         return None
 
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> MCFScraper:
+    def __enter__(self) -> LinkedInScraper:
         return self
 
     def __exit__(self, *exc: object) -> None:

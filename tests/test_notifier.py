@@ -12,11 +12,10 @@ def _make_job(uuid: str = "test-uuid", **kwargs) -> Job:
         title="Software Engineer",
         company="Tech Corp",
         category="IT",
-        min_salary=6000,
-        max_salary=10000,
-        position_level="Executive",
-        employment_type="Full Time",
+        location="Singapore",
         posting_date="2026-03-15",
+        url="https://www.linkedin.com/jobs/view/test-uuid",
+        salary="SGD 6,000 - 10,000/mo",
     )
     defaults.update(kwargs)
     return Job(**defaults)
@@ -48,12 +47,12 @@ class TestNtfyNotifier:
         assert route.call_count == 1
 
         request = route.calls[0].request
-        assert request.headers["Title"] == "Software Engineer @ Tech Corp"
+        assert request.headers["Title"] == "Software Engineer"
         assert request.headers["Tags"] == "briefcase"
         assert request.headers["Priority"] == "default"
-        assert request.headers["Click"] == "https://www.mycareersfuture.gov.sg/job/test-uuid"
+        assert request.headers["Click"] == "https://www.linkedin.com/jobs/view/test-uuid"
         assert b"Tech Corp" in request.content
-        assert b"SGD 6,000" in request.content
+        assert b"Singapore" in request.content
 
     @respx.mock
     def test_notify_respects_batch_size(self):

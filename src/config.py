@@ -11,7 +11,6 @@ from src.models import (
     AppConfig,
     CategoryConfig,
     DatabaseConfig,
-    FilterConfig,
     LoggingConfig,
     NotificationConfig,
     ScraperConfig,
@@ -42,7 +41,6 @@ def load_config(path: Path | None = None) -> AppConfig:
 def _parse_config(raw: dict) -> AppConfig:
     scraper_raw = raw.get("scraper", {})
     scraper = ScraperConfig(
-        base_url=scraper_raw.get("base_url", ScraperConfig.base_url),
         page_size=scraper_raw.get("page_size", ScraperConfig.page_size),
         max_pages=scraper_raw.get("max_pages", ScraperConfig.max_pages),
         request_timeout=scraper_raw.get("request_timeout", ScraperConfig.request_timeout),
@@ -53,19 +51,13 @@ def _parse_config(raw: dict) -> AppConfig:
 
     categories = []
     for cat_raw in raw.get("categories", []):
-        filters_raw = cat_raw.get("filters", {})
-        filters = FilterConfig(
-            employment_types=filters_raw.get("employment_types", ["Full Time", "Contract"]),
-            position_levels=filters_raw.get("position_levels", []),
-            min_salary=filters_raw.get("min_salary", 5000),
-            visa_keywords=filters_raw.get("visa_keywords", FilterConfig().visa_keywords),
-        )
         categories.append(
             CategoryConfig(
                 name=cat_raw["name"],
-                api_category=cat_raw["api_category"],
+                keywords=cat_raw["keywords"],
                 ntfy_topic=cat_raw["ntfy_topic"],
-                filters=filters,
+                location=cat_raw.get("location", "Singapore"),
+                experience_level=cat_raw.get("experience_level", ""),
             )
         )
 
@@ -127,19 +119,16 @@ def _validate(config: AppConfig) -> None:
     for cat in config.categories:
         if not cat.name:
             raise ValueError("Category name is required")
-        if not cat.api_category:
-            raise ValueError(f"Category '{cat.name}' missing api_category")
+        if not cat.keywords:
+            raise ValueError(f"Category '{cat.name}' missing keywords")
         if not cat.ntfy_topic:
             raise ValueError(f"Category '{cat.name}' missing ntfy_topic")
-        if cat.filters.min_salary < 0:
-            raise ValueError(f"Category '{cat.name}' has negative min_salary")
 
-    if config.ai.enabled and not config.ai.api_key:
-        raise ValueError("AI is enabled but ai.api_key is not set (config or AI_API_KEY env var)")
-
-    if config.scraper.page_size < 1 or config.scraper.page_size > 100:
-        raise ValueError("page_size must be between 1 and 100")
+    if config.scraper.page_size < 1 or config.scraper.page_size > 25:
+        raise ValueError("page_size must be between 1 and 25")
     if config.scraper.max_pages < 1:
         raise ValueError("max_pages must be at least 1")
     if config.database.retention_days < 1:
         raise ValueError("retention_days must be at least 1")
+    if config.ai.enabled and not config.ai.api_key:
+        raise ValueError("AI is enabled but ai.api_key is not set (config or AI_API_KEY env var)")

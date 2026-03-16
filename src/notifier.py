@@ -35,9 +35,9 @@ class NtfyNotifier:
 
     def _send(self, job: Job, topic: str) -> bool:
         url = f"{self._config.ntfy_server.rstrip('/')}/{topic}"
-        body = f"{job.company} | {job.salary_display} | {job.position_level}"
+        body = f"{job.company} | {job.salary_display} | {job.location}"
         headers = {
-            "Title": f"{job.title} @ {job.company}",
+            "Title": f"{job.title}",
             "Tags": "briefcase",
             "Priority": self._config.priority,
             "Click": job.url,

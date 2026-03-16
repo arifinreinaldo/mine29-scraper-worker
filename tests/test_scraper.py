@@ -1,27 +1,26 @@
-import json
 from pathlib import Path
-from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
 
-from src.models import CategoryConfig, FilterConfig, ScraperConfig
-from src.scraper import MCFScraper
+from src.models import CategoryConfig, ScraperConfig
+from src.scraper import LinkedInScraper
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _load_fixture(name: str) -> dict:
-    return json.loads((FIXTURES / name).read_text())
+def _load_fixture(name: str) -> str:
+    return (FIXTURES / name).read_text()
 
 
 def _make_category(**kwargs) -> CategoryConfig:
     defaults = dict(
         name="IT",
-        api_category="Information Technology",
+        keywords="software engineer",
         ntfy_topic="test-topic",
-        filters=FilterConfig(min_salary=5000),
+        location="Singapore",
+        experience_level="",
     )
     defaults.update(kwargs)
     return CategoryConfig(**defaults)
@@ -29,9 +28,8 @@ def _make_category(**kwargs) -> CategoryConfig:
 
 def _make_config(**kwargs) -> ScraperConfig:
     defaults = dict(
-        base_url="https://api.mycareersfuture.gov.sg",
-        page_size=100,
-        max_pages=5,
+        page_size=25,
+        max_pages=1,
         request_timeout=10,
         delay_between_requests=0,
     )
@@ -39,169 +37,116 @@ def _make_config(**kwargs) -> ScraperConfig:
     return ScraperConfig(**defaults)
 
 
-class TestMCFScraperSearch:
+class TestLinkedInScraperSearch:
     @respx.mock
     def test_search_parses_jobs(self):
-        fixture = _load_fixture("search_response.json")
-        respx.post("https://api.mycareersfuture.gov.sg/v2/search").mock(
-            return_value=httpx.Response(200, json=fixture)
+        fixture = _load_fixture("search_response.html")
+        respx.get(url__startswith="https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
+            return_value=httpx.Response(200, text=fixture)
         )
 
-        with MCFScraper(_make_config()) as scraper:
+        with LinkedInScraper(_make_config()) as scraper:
             jobs = scraper.search(_make_category())
 
         assert len(jobs) == 2
-        assert jobs[0].uuid == "abc-123"
+        assert jobs[0].uuid == "111111"
         assert jobs[0].title == "Software Engineer"
         assert jobs[0].company == "Tech Corp"
-        assert jobs[0].min_salary == 6000
-        assert jobs[0].max_salary == 10000
-        assert jobs[1].uuid == "def-456"
+        assert jobs[0].location == "Singapore"
+        assert jobs[0].posting_date == "2026-03-15"
+        assert "111111" in jobs[0].url
+        assert jobs[0].salary == "SGD 6,000 - 10,000/mo"
+
+        assert jobs[1].uuid == "222222"
+        assert jobs[1].company == "Ad Agency Pte Ltd"
+        assert jobs[1].salary == ""
 
     @respx.mock
     def test_search_empty_results(self):
-        respx.post("https://api.mycareersfuture.gov.sg/v2/search").mock(
-            return_value=httpx.Response(200, json={"total": 0, "results": []})
+        respx.get(url__startswith="https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
+            return_value=httpx.Response(200, text="<html></html>")
         )
 
-        with MCFScraper(_make_config()) as scraper:
+        with LinkedInScraper(_make_config()) as scraper:
             jobs = scraper.search(_make_category())
 
         assert jobs == []
-
-    @respx.mock
-    def test_search_stops_at_total(self):
-        fixture = _load_fixture("search_response.json")
-        fixture["total"] = 2
-
-        route = respx.post("https://api.mycareersfuture.gov.sg/v2/search").mock(
-            return_value=httpx.Response(200, json=fixture)
-        )
-
-        with MCFScraper(_make_config(page_size=100)) as scraper:
-            scraper.search(_make_category())
-
-        assert route.call_count == 1
 
     @respx.mock
     def test_search_paginates(self):
-        def _job(i):
-            return {"uuid": f"job-{i}", "title": "J", "postedCompany": {"name": "C"}, "salary": {"minimum": 6000, "maximum": 8000}, "positionLevels": [{"position": "Exec"}], "employmentTypes": [{"employmentType": "Full Time"}], "metadata": {"newPostingDate": "2026-03-15"}}
+        fixture = _load_fixture("search_response.html")
 
-        page0 = {"total": 150, "results": [_job(i) for i in range(100)]}
-        page1 = {"total": 150, "results": [_job(i) for i in range(100, 150)]}
-
-        route = respx.post("https://api.mycareersfuture.gov.sg/v2/search").mock(
+        respx.get(url__startswith="https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
             side_effect=[
-                httpx.Response(200, json=page0),
-                httpx.Response(200, json=page1),
+                httpx.Response(200, text=fixture),
+                httpx.Response(200, text=fixture),
+                httpx.Response(200, text=""),
             ]
         )
 
-        with MCFScraper(_make_config()) as scraper:
+        with LinkedInScraper(_make_config(max_pages=3)) as scraper:
             jobs = scraper.search(_make_category())
 
-        assert len(jobs) == 150
-        assert route.call_count == 2
+        assert len(jobs) == 4
 
     @respx.mock
     def test_search_handles_server_error(self):
-        respx.post("https://api.mycareersfuture.gov.sg/v2/search").mock(
+        respx.get(url__startswith="https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
             return_value=httpx.Response(500)
         )
 
-        with MCFScraper(_make_config()) as scraper:
+        with LinkedInScraper(_make_config()) as scraper:
             jobs = scraper.search(_make_category())
 
         assert jobs == []
 
     @respx.mock
-    def test_search_body_includes_filters(self):
-        respx.post("https://api.mycareersfuture.gov.sg/v2/search").mock(
-            return_value=httpx.Response(200, json={"total": 0, "results": []})
+    def test_url_includes_visa_filter(self):
+        respx.get(url__startswith="https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
+            return_value=httpx.Response(200, text="")
         )
 
-        category = _make_category(
-            filters=FilterConfig(
-                employment_types=["Full Time", "Part Time"],
-                position_levels=["Executive", "Manager"],
-                min_salary=7000,
-            )
+        with LinkedInScraper(_make_config()) as scraper:
+            scraper.search(_make_category())
+
+        url = str(respx.calls[0].request.url)
+        assert "f_SB2=4" in url
+        assert "software+engineer" in url or "software%20engineer" in url
+        assert "Singapore" in url or "singapore" in url.lower()
+
+    @respx.mock
+    def test_url_includes_experience_level(self):
+        respx.get(url__startswith="https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
+            return_value=httpx.Response(200, text="")
         )
 
-        with MCFScraper(_make_config()) as scraper:
+        category = _make_category(experience_level="entry,mid-senior")
+        with LinkedInScraper(_make_config()) as scraper:
             scraper.search(category)
 
-        request = respx.calls[0].request
-        body = json.loads(request.content)
-        assert body["salary"] == 7000
-        assert body["employmentTypes"] == ["Full Time", "Part Time"]
-        assert body["positionLevels"] == ["Executive", "Manager"]
-        assert body["categories"] == ["Information Technology"]
-        assert body["sortBy"] == ["new_posting_date"]
-
-
-class TestMCFScraperVisaFilter:
-    @respx.mock
-    def test_filter_visa_jobs_matches_keywords(self):
-        visa_detail = _load_fixture("job_detail_visa.json")
-        no_visa_detail = _load_fixture("job_detail_no_visa.json")
-
-        respx.get("https://api.mycareersfuture.gov.sg/v2/jobs/abc-123").mock(
-            return_value=httpx.Response(200, json=visa_detail)
-        )
-        respx.get("https://api.mycareersfuture.gov.sg/v2/jobs/def-456").mock(
-            return_value=httpx.Response(200, json=no_visa_detail)
-        )
-
-        from src.models import Job
-
-        jobs = [
-            Job(uuid="abc-123", title="SE", company="TC", category="IT",
-                min_salary=6000, max_salary=10000, position_level="Exec",
-                employment_type="FT", posting_date="2026-03-15"),
-            Job(uuid="def-456", title="MM", company="AA", category="IT",
-                min_salary=7000, max_salary=12000, position_level="Mgr",
-                employment_type="FT", posting_date="2026-03-14"),
-        ]
-
-        with MCFScraper(_make_config()) as scraper:
-            visa_jobs = scraper.filter_visa_jobs(jobs, ["Employment Pass", "EP", "visa sponsorship"])
-
-        assert len(visa_jobs) == 1
-        assert visa_jobs[0].uuid == "abc-123"
-        assert visa_jobs[0].visa_matched is True
+        url = str(respx.calls[0].request.url)
+        assert "f_E=2,4" in url
 
     @respx.mock
-    def test_filter_visa_jobs_empty_keywords_returns_all(self):
-        from src.models import Job
-
-        jobs = [
-            Job(uuid="x", title="T", company="C", category="IT",
-                min_salary=6000, max_salary=8000, position_level="E",
-                employment_type="FT", posting_date="2026-03-15"),
-        ]
-
-        with MCFScraper(_make_config()) as scraper:
-            result = scraper.filter_visa_jobs(jobs, [])
-
-        assert len(result) == 1
-
-    @respx.mock
-    def test_filter_visa_jobs_handles_failed_detail_fetch(self):
-        respx.get("https://api.mycareersfuture.gov.sg/v2/jobs/fail-1").mock(
-            return_value=httpx.Response(500)
+    def test_clean_url_removes_tracking(self):
+        fixture = _load_fixture("search_response.html")
+        respx.get(url__startswith="https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
+            return_value=httpx.Response(200, text=fixture)
         )
 
-        from src.models import Job
+        with LinkedInScraper(_make_config()) as scraper:
+            jobs = scraper.search(_make_category())
 
-        jobs = [
-            Job(uuid="fail-1", title="T", company="C", category="IT",
-                min_salary=6000, max_salary=8000, position_level="E",
-                employment_type="FT", posting_date="2026-03-15"),
-        ]
+        assert "?" not in jobs[0].url
+        assert "trackingId" not in jobs[0].url
 
-        with MCFScraper(_make_config()) as scraper:
-            result = scraper.filter_visa_jobs(jobs, ["EP"])
+    @respx.mock
+    def test_handles_404(self):
+        respx.get(url__startswith="https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search").mock(
+            return_value=httpx.Response(404)
+        )
 
-        assert result == []
+        with LinkedInScraper(_make_config()) as scraper:
+            jobs = scraper.search(_make_category())
+
+        assert jobs == []

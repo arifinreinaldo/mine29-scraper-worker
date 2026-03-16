@@ -9,57 +9,32 @@ class Job:
     title: str
     company: str
     category: str
-    min_salary: int
-    max_salary: int
-    position_level: str
-    employment_type: str
+    location: str
     posting_date: str
+    url: str
+    salary: str = ""
     description: str = ""
-    visa_matched: bool = False
-
-    @property
-    def url(self) -> str:
-        return f"https://www.mycareersfuture.gov.sg/job/{self.uuid}"
 
     @property
     def salary_display(self) -> str:
-        if self.min_salary == self.max_salary:
-            return f"SGD {self.min_salary:,}/mo"
-        return f"SGD {self.min_salary:,}–{self.max_salary:,}/mo"
-
-
-@dataclass
-class FilterConfig:
-    employment_types: list[str] = field(default_factory=lambda: ["Full Time", "Contract"])
-    position_levels: list[str] = field(default_factory=list)
-    min_salary: int = 5000
-    visa_keywords: list[str] = field(
-        default_factory=lambda: [
-            "Employment Pass",
-            "EP",
-            "S Pass",
-            "work visa",
-            "visa sponsorship",
-            "foreigner",
-        ]
-    )
+        return self.salary or "Not listed"
 
 
 @dataclass
 class CategoryConfig:
     name: str
-    api_category: str
+    keywords: str
     ntfy_topic: str
-    filters: FilterConfig = field(default_factory=FilterConfig)
+    location: str = "Singapore"
+    experience_level: str = ""
 
 
 @dataclass
 class ScraperConfig:
-    base_url: str = "https://api.mycareersfuture.gov.sg"
-    page_size: int = 100
-    max_pages: int = 5
+    page_size: int = 25
+    max_pages: int = 4
     request_timeout: int = 30
-    delay_between_requests: float = 2.0
+    delay_between_requests: float = 3.0
 
 
 @dataclass

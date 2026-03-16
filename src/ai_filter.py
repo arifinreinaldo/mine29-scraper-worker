@@ -80,7 +80,6 @@ class AIFilter:
         visa_jobs: list[Job] = []
         for job in jobs:
             if self.is_visa_eligible(job):
-                job.visa_matched = True
                 visa_jobs.append(job)
 
         logger.info("AI visa filter: %d/%d jobs matched", len(visa_jobs), len(jobs))

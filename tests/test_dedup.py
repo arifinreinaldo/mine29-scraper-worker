@@ -1,5 +1,3 @@
-import sqlite3
-
 import pytest
 
 from src.dedup import DedupStore
@@ -12,11 +10,9 @@ def _make_job(uuid: str = "test-uuid", **kwargs) -> Job:
         title="Test Job",
         company="Test Co",
         category="IT",
-        min_salary=6000,
-        max_salary=10000,
-        position_level="Executive",
-        employment_type="Full Time",
+        location="Singapore",
         posting_date="2026-03-15",
+        url="https://www.linkedin.com/jobs/view/test-uuid",
     )
     defaults.update(kwargs)
     return Job(**defaults)

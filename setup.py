@@ -6,20 +6,6 @@ import sys
 
 import yaml
 
-DEFAULT_VISA_KEYWORDS = [
-    "Employment Pass",
-    "EP",
-    "S Pass",
-    "work visa",
-    "visa sponsorship",
-    "foreigner",
-]
-
-CATEGORIES = {
-    "1": ("Information Technology", "Information Technology"),
-    "2": ("Marketing", "Marketing / Public Relations"),
-}
-
 
 def ask(prompt: str, default: str = "") -> str:
     suffix = f" [{default}]" if default else ""
@@ -27,50 +13,35 @@ def ask(prompt: str, default: str = "") -> str:
     return value or default
 
 
-def ask_yes(prompt: str, default: bool = True) -> bool:
-    suffix = " [Y/n]" if default else " [y/N]"
-    value = input(f"{prompt}{suffix}: ").strip().lower()
-    if not value:
-        return default
-    return value in ("y", "yes")
-
-
 def main() -> None:
     print("=== mine29-scraper-worker setup ===\n")
-
-    print("Which categories do you want to track?")
-    for key, (name, _) in CATEGORIES.items():
-        print(f"  {key}. {name}")
-
-    selected_input = ask("Enter numbers separated by comma", "1,2")
-    selected_keys = [k.strip() for k in selected_input.split(",")]
+    print("This scraper finds visa-sponsored jobs on LinkedIn.\n")
 
     categories = []
-    for key in selected_keys:
-        if key not in CATEGORIES:
-            print(f"Unknown category: {key}, skipping")
+    while True:
+        print(f"--- Category {len(categories) + 1} ---")
+        name = ask("Category name (e.g. IT, Marketing)", "")
+        if not name:
+            if categories:
+                break
+            print("At least one category is required.")
             continue
 
-        name, api_category = CATEGORIES[key]
-        print(f"\n--- {name} ---")
-        topic = ask(f"ntfy topic for {name}", f"mine29-{name.lower().replace(' ', '-')}-jobs")
-        min_salary = int(ask("Minimum salary (SGD/month)", "5000"))
+        keywords = ask("LinkedIn search keywords", "software engineer")
+        location = ask("Location", "Singapore")
+        topic = ask("ntfy topic (unique random name)", f"mine29-{name.lower().replace(' ', '-')}-jobs")
+        experience = ask("Experience level filter (empty=all, options: internship,entry,associate,mid-senior,director,executive)", "")
 
         categories.append({
             "name": name,
-            "api_category": api_category,
+            "keywords": keywords,
             "ntfy_topic": topic,
-            "filters": {
-                "employment_types": ["Full Time", "Contract"],
-                "position_levels": [],
-                "min_salary": min_salary,
-                "visa_keywords": DEFAULT_VISA_KEYWORDS,
-            },
+            "location": location,
+            "experience_level": experience,
         })
 
-    if not categories:
-        print("No categories selected. Exiting.")
-        sys.exit(1)
+        if not ask("Add another category? (y/n)", "n").lower().startswith("y"):
+            break
 
     print("\n--- Notifications ---")
     ntfy_server = ask("ntfy server URL", "https://ntfy.sh")
@@ -83,11 +54,10 @@ def main() -> None:
 
     config = {
         "scraper": {
-            "base_url": "https://api.mycareersfuture.gov.sg",
-            "page_size": 100,
-            "max_pages": 5,
+            "page_size": 25,
+            "max_pages": 4,
             "request_timeout": 30,
-            "delay_between_requests": 2.0,
+            "delay_between_requests": 3.0,
         },
         "categories": categories,
         "notifications": {
@@ -100,6 +70,13 @@ def main() -> None:
             "path": db_path,
             "retention_days": retention,
         },
+        "ai": {
+            "enabled": False,
+            "api_key": "",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen-plus",
+            "request_timeout": 30,
+        },
         "logging": {
             "level": "INFO",
         },
@@ -110,7 +87,7 @@ def main() -> None:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     print(f"\nConfig written to {output_path}")
-    print("You can now run: python -m src.main")
+    print("Run: python3 -m src.main")
 
 
 if __name__ == "__main__":

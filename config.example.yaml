@@ -1,44 +1,25 @@
 scraper:
-  base_url: "https://api.mycareersfuture.gov.sg"
-  page_size: 100
-  max_pages: 5
+  page_size: 25          # LinkedIn returns max 25 per page
+  max_pages: 4           # 4 pages = 100 jobs max
   request_timeout: 30
-  delay_between_requests: 2.0
+  delay_between_requests: 3.0
 
 categories:
-  - name: "Information Technology"
-    api_category: "Information Technology"
-    ntfy_topic: "mine29-it-jobs"
-    filters:
-      employment_types: ["Full Time", "Contract"]
-      position_levels: []
-      min_salary: 5000
-      visa_keywords:
-        - "Employment Pass"
-        - "EP"
-        - "S Pass"
-        - "work visa"
-        - "visa sponsorship"
-        - "foreigner"
+  - name: "IT"
+    keywords: "software engineer"
+    ntfy_topic: "mine29-it-jobs-xyz123"
+    location: "Singapore"
+    experience_level: ""  # empty = all levels. Options: internship, entry, associate, mid-senior, director, executive
 
   - name: "Marketing"
-    api_category: "Marketing / Public Relations"
-    ntfy_topic: "mine29-marketing-jobs"
-    filters:
-      employment_types: ["Full Time", "Contract"]
-      position_levels: []
-      min_salary: 5000
-      visa_keywords:
-        - "Employment Pass"
-        - "EP"
-        - "S Pass"
-        - "work visa"
-        - "visa sponsorship"
-        - "foreigner"
+    keywords: "marketing"
+    ntfy_topic: "mine29-mkt-jobs-xyz123"
+    location: "Singapore"
+    experience_level: ""
 
 notifications:
   ntfy_server: "https://ntfy.sh"
-  ntfy_token: ""
+  ntfy_token: ""         # leave empty for public topics
   priority: "default"
   batch_size: 10
 
@@ -48,7 +29,7 @@ database:
 
 ai:
   enabled: false
-  api_key: ""  # or set AI_API_KEY env var
+  api_key: ""            # or set AI_API_KEY env var
   base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
   model: "qwen-plus"
   request_timeout: 30
