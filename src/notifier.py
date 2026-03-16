@@ -9,6 +9,10 @@ from src.models import Job, NotificationConfig
 logger = logging.getLogger(__name__)
 
 
+def _ascii_safe(text: str) -> str:
+    return text.encode("ascii", errors="replace").decode("ascii")
+
+
 class NtfyNotifier:
     def __init__(self, config: NotificationConfig) -> None:
         self._config = config
@@ -36,15 +40,16 @@ class NtfyNotifier:
     def _send(self, job: Job, topic: str) -> bool:
         url = f"{self._config.ntfy_server.rstrip('/')}/{topic}"
         body = f"{job.company} | {job.salary_display} | {job.location}"
+        title = _ascii_safe(job.title)
         headers = {
-            "Title": f"{job.title}",
+            "Title": title,
             "Tags": "briefcase",
             "Priority": self._config.priority,
             "Click": job.url,
         }
 
         try:
-            response = self._client.post(url, content=body, headers=headers)
+            response = self._client.post(url, content=body.encode("utf-8"), headers=headers)
             response.raise_for_status()
             return True
         except httpx.HTTPError as e:
