@@ -5,15 +5,34 @@ scraper:
   delay_between_requests: 3.0
 
 categories:
-  - name: "IT"
-    keywords: "software engineer"
-    ntfy_topic: "mine29-it-jobs-xyz123"
+  # IT subcategories
+  - name: "Developer"
+    keywords: "software engineer OR software developer OR full stack OR backend OR frontend"
+    ntfy_topic: "mine29-dev-xyz123"
     location: "Singapore"
     experience_level: ""  # empty = all levels. Options: internship, entry, associate, mid-senior, director, executive
 
+  - name: "Data Engineer"
+    keywords: "data engineer OR data platform OR ETL"
+    ntfy_topic: "mine29-dataeng-xyz123"
+    location: "Singapore"
+    experience_level: ""
+
+  - name: "Data Analyst"
+    keywords: "data analyst OR business analyst OR BI analyst"
+    ntfy_topic: "mine29-dataanalyst-xyz123"
+    location: "Singapore"
+    experience_level: ""
+
+  - name: "Project Manager"
+    keywords: "IT project manager OR scrum master OR agile coach OR delivery manager"
+    ntfy_topic: "mine29-pm-xyz123"
+    location: "Singapore"
+    experience_level: ""
+
   - name: "Marketing"
-    keywords: "marketing"
-    ntfy_topic: "mine29-mkt-jobs-xyz123"
+    keywords: "marketing manager OR digital marketing OR brand manager"
+    ntfy_topic: "mine29-mkt-xyz123"
     location: "Singapore"
     experience_level: ""
 
