@@ -58,6 +58,7 @@ def _parse_config(raw: dict) -> AppConfig:
                 ntfy_topic=cat_raw["ntfy_topic"],
                 location=cat_raw.get("location", "Singapore"),
                 experience_level=cat_raw.get("experience_level", ""),
+                highlight_keywords=cat_raw.get("highlight_keywords", []),
             )
         )
 

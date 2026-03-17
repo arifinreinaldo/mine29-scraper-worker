@@ -14,10 +14,16 @@ class Job:
     url: str
     salary: str = ""
     description: str = ""
+    urgency: str = ""  # "high", "medium", "low" — set by AI filter
+    summary: str = ""  # AI-generated requirements summary
 
     @property
     def salary_display(self) -> str:
         return self.salary or "Not listed"
+
+    @property
+    def is_high_need(self) -> bool:
+        return self.urgency == "high"
 
 
 @dataclass
@@ -27,6 +33,7 @@ class CategoryConfig:
     ntfy_topic: str
     location: str = "Singapore"
     experience_level: str = ""
+    highlight_keywords: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from pathlib import Path
 
+from src.ai_filter import AIFilter
 from src.config import load_config
 from src.dedup import DedupStore
-from src.models import AppConfig
+from src.keyword_filter import filter_visa_jobs
+from src.models import AIConfig, AppConfig
 from src.notifier import NtfyNotifier
 from src.scraper import LinkedInScraper
 
@@ -21,46 +24,84 @@ def setup_logging(level: str) -> None:
     )
 
 
+def _enrich_with_ai(
+    jobs: list, scraper: LinkedInScraper, ai: AIFilter, delay: float
+) -> list:
+    """Fetch descriptions and run AI enrichment. Falls back gracefully."""
+    for i, job in enumerate(jobs):
+        if not ai.is_available:
+            logger.info("AI unavailable — remaining %d jobs pass through without AI", len(jobs) - i)
+            break
+
+        if i > 0:
+            time.sleep(delay)
+
+        job.description = scraper.fetch_description(job)
+        if job.description:
+            ai.enrich(job)
+
+    return jobs
+
+
 def run(config: AppConfig) -> None:
     setup_logging(config.logging.level)
     logger.info("Starting mine29-scraper-worker (LinkedIn)")
+
+    ai_enabled = config.ai.enabled and config.ai.api_key
+    ai: AIFilter | None = None
 
     with (
         LinkedInScraper(config.scraper) as scraper,
         DedupStore(config.database.path) as dedup,
         NtfyNotifier(config.notifications) as notifier,
     ):
-        for category in config.categories:
-            logger.info("Processing category: %s", category.name)
+        if ai_enabled:
+            ai = AIFilter(config.ai)
 
-            jobs = scraper.search(category)
-            if not jobs:
-                logger.info("No jobs found for %s", category.name)
-                continue
+        try:
+            for category in config.categories:
+                logger.info("Processing category: %s", category.name)
 
-            new_jobs = dedup.filter_new(jobs)
-            logger.info(
-                "%s: %d total, %d new", category.name, len(jobs), len(new_jobs)
-            )
+                jobs = scraper.search(category)
+                if not jobs:
+                    logger.info("No jobs found for %s", category.name)
+                    continue
 
-            if not new_jobs:
-                continue
+                # Layer 1: Keyword-based visa filter (always on, free)
+                jobs = filter_visa_jobs(jobs)
 
-            dedup.mark_seen(new_jobs)
+                new_jobs = dedup.filter_new(jobs)
+                logger.info(
+                    "%s: %d total, %d new", category.name, len(jobs), len(new_jobs)
+                )
 
-            new_jobs.sort(key=lambda j: j.posting_date, reverse=True)
-            notified = notifier.notify(new_jobs, category.ntfy_topic)
-            dedup.mark_notified(notified)
+                if not new_jobs:
+                    continue
 
-            logger.info(
-                "%s summary: %d fetched, %d new, %d notified",
-                category.name,
-                len(jobs),
-                len(new_jobs),
-                len(notified),
-            )
+                dedup.mark_seen(new_jobs)
 
-        dedup.cleanup_old(config.database.retention_days)
+                # Layer 2: AI enrichment (best-effort, falls back to basic data)
+                if ai and ai.is_available:
+                    new_jobs = _enrich_with_ai(
+                        new_jobs, scraper, ai, config.scraper.delay_between_requests
+                    )
+
+                new_jobs.sort(key=lambda j: j.posting_date, reverse=True)
+                notified = notifier.notify(new_jobs, category.ntfy_topic, category)
+                dedup.mark_notified(notified)
+
+                logger.info(
+                    "%s summary: %d fetched, %d new, %d notified",
+                    category.name,
+                    len(jobs),
+                    len(new_jobs),
+                    len(notified),
+                )
+
+            dedup.cleanup_old(config.database.retention_days)
+        finally:
+            if ai:
+                ai.close()
 
     logger.info("Done")
 

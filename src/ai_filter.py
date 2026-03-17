@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 import httpx
@@ -9,20 +10,36 @@ from src.models import AIConfig, Job
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
-You are a job listing analyst. Given a job description, determine if the employer \
-is willing to hire foreign workers who need a work visa (Employment Pass, S Pass, etc.).
+You are a job listing analyst. Given a job description, analyze it and respond \
+with a JSON object containing exactly these fields:
 
-Reply with ONLY "yes" or "no".
+{
+  "visa_sponsored": true or false,
+  "urgency": "high" or "medium" or "low",
+  "summary": "1-2 sentence summary of key requirements and what the role does"
+}
 
-Indicators of visa willingness:
-- Mentions Employment Pass (EP), S Pass, work visa, visa sponsorship
-- Says "foreigners welcome" or "open to all nationalities"
-- Does NOT restrict to Singapore citizens/PRs only
+Rules for visa_sponsored:
+- true: mentions Employment Pass, S Pass, work visa, visa sponsorship, \
+"foreigners welcome", "open to all nationalities", does NOT restrict to \
+Singapore citizens/PRs only
+- false: requires Singapore citizenship/PR, says "SC/PR only", \
+"Singaporeans only", or no mention of visa (ambiguous = false)
 
-Indicators of NO visa willingness:
-- Explicitly requires Singapore citizenship or PR status
-- Says "Singaporeans only" or "SC/PR only"
-- No mention of visa/foreign workers (ambiguous = no)
+Rules for urgency (how eager the employer is to hire):
+- "high": signals like "immediate start", "urgent hiring", "ASAP", \
+multiple openings, signing bonus, relocation support, "fast-track", \
+"immediate need"
+- "medium": standard posting, no special urgency or delay signals
+- "low": future pipeline, "talent pool", no concrete start date, \
+"expressions of interest"
+
+Rules for summary:
+- Concise 1-2 sentences covering: key skills needed, years of experience, \
+and what the role does
+- Focus on hard requirements, not nice-to-haves
+
+Reply with ONLY the JSON object, no other text.\
 """
 
 
@@ -37,8 +54,13 @@ class AIFilter:
                 "Content-Type": "application/json",
             },
         )
+        self._hit_limit = False
 
-    def is_visa_eligible(self, job: Job) -> bool:
+    def enrich(self, job: Job) -> bool:
+        """Enrich a job with AI analysis. Returns True if AI data was added, False on failure."""
+        if self._hit_limit:
+            return False
+
         if not job.description:
             return False
 
@@ -47,8 +69,7 @@ class AIFilter:
         user_msg = (
             f"Job Title: {job.title}\n"
             f"Company: {job.company}\n"
-            f"Description:\n{truncated}\n\n"
-            "Is this employer willing to hire foreign workers who need a work visa?"
+            f"Description:\n{truncated}"
         )
 
         body = {
@@ -57,33 +78,104 @@ class AIFilter:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
-            "max_tokens": 10,
+            "max_tokens": 200,
             "temperature": 0.0,
         }
 
         try:
             response = self._client.post("/chat/completions", json=body)
+
+            if response.status_code == 429:
+                logger.warning("AI rate limited — falling back to normal scraping")
+                self._hit_limit = True
+                return False
+
             response.raise_for_status()
             data = response.json()
-            answer = data["choices"][0]["message"]["content"].strip().lower()
-            result = answer.startswith("yes")
-            logger.debug(
-                "AI visa check for %s @ %s: %s (raw: %s)",
-                job.title, job.company, result, answer,
-            )
-            return result
-        except (httpx.HTTPError, KeyError, IndexError) as e:
-            logger.error("AI filter failed for %s: %s", job.uuid, e)
+            content = data["choices"][0]["message"]["content"].strip()
+            return self._parse_and_apply(content, job)
+
+        except httpx.TimeoutException:
+            logger.warning("AI request timed out for %s — skipping AI enrichment", job.uuid)
+            return False
+        except httpx.HTTPError as e:
+            if _is_quota_error(e):
+                logger.warning("AI quota exceeded — falling back to normal scraping")
+                self._hit_limit = True
+            else:
+                logger.error("AI request failed for %s: %s", job.uuid, e)
+            return False
+        except (KeyError, IndexError) as e:
+            logger.error("AI response parse error for %s: %s", job.uuid, e)
             return False
 
-    def filter_visa_jobs(self, jobs: list[Job]) -> list[Job]:
-        visa_jobs: list[Job] = []
-        for job in jobs:
-            if self.is_visa_eligible(job):
-                visa_jobs.append(job)
+    def _parse_and_apply(self, content: str, job: Job) -> bool:
+        """Parse JSON from AI response and apply fields to the job."""
+        # Strip markdown code fences if present
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            cleaned = cleaned.rsplit("```", 1)[0]
+            cleaned = cleaned.strip()
 
-        logger.info("AI visa filter: %d/%d jobs matched", len(visa_jobs), len(jobs))
-        return visa_jobs
+        try:
+            result = json.loads(cleaned)
+        except json.JSONDecodeError:
+            logger.warning("AI returned non-JSON for %s: %s", job.uuid, content[:100])
+            return False
+
+        visa = result.get("visa_sponsored")
+        urgency = result.get("urgency", "medium")
+        summary = result.get("summary", "")
+
+        if urgency not in ("high", "medium", "low"):
+            urgency = "medium"
+
+        job.urgency = urgency
+        job.summary = summary[:300]  # cap length
+
+        is_visa = bool(visa)
+        logger.debug(
+            "AI enriched %s @ %s: visa=%s urgency=%s",
+            job.title, job.company, is_visa, urgency,
+        )
+        return is_visa
+
+    def enrich_jobs(self, jobs: list[Job]) -> list[Job]:
+        """Enrich jobs with AI analysis. Filters out non-visa-sponsored jobs.
+
+        On AI failure, jobs pass through without filtering (fallback).
+        """
+        enriched: list[Job] = []
+        skipped: list[Job] = []
+
+        for job in jobs:
+            is_visa = self.enrich(job)
+
+            if self._hit_limit:
+                # AI hit limit — let remaining jobs pass through unfiltered
+                skipped.append(job)
+                skipped.extend(jobs[jobs.index(job) + 1 :])
+                break
+
+            if is_visa:
+                enriched.append(job)
+            elif not job.description:
+                # No description to analyze — pass through
+                skipped.append(job)
+            else:
+                logger.debug("AI filtered out (no visa): %s @ %s", job.title, job.company)
+
+        result = enriched + skipped
+        logger.info(
+            "AI enrichment: %d enriched, %d passed through, %d filtered out of %d",
+            len(enriched), len(skipped), len(jobs) - len(result), len(jobs),
+        )
+        return result
+
+    @property
+    def is_available(self) -> bool:
+        return not self._hit_limit
 
     def close(self) -> None:
         self._client.close()
@@ -93,3 +185,10 @@ class AIFilter:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+def _is_quota_error(error: httpx.HTTPError) -> bool:
+    """Check if the error indicates API quota/billing exhaustion."""
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code in (402, 403, 429)
+    return False

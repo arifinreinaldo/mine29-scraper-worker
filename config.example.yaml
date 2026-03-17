@@ -11,30 +11,41 @@ categories:
     ntfy_topic: "mine29-dev-xyz123"
     location: "Singapore"
     experience_level: ""  # empty = all levels. Options: internship, entry, associate, mid-senior, director, executive
+    highlight_keywords: []
 
   - name: "Data Engineer"
     keywords: "data engineer OR data platform OR ETL"
     ntfy_topic: "mine29-dataeng-xyz123"
     location: "Singapore"
     experience_level: ""
+    highlight_keywords: []
 
   - name: "Data Analyst"
     keywords: "data analyst OR business analyst OR BI analyst"
     ntfy_topic: "mine29-dataanalyst-xyz123"
     location: "Singapore"
     experience_level: ""
+    highlight_keywords: []
 
   - name: "Project Manager"
     keywords: "IT project manager OR scrum master OR agile coach OR delivery manager"
     ntfy_topic: "mine29-pm-xyz123"
     location: "Singapore"
     experience_level: ""
+    highlight_keywords: []
 
   - name: "Marketing"
     keywords: "marketing manager OR digital marketing OR brand manager"
     ntfy_topic: "mine29-mkt-xyz123"
     location: "Singapore"
     experience_level: ""
+    highlight_keywords:  # Jobs matching these get star tag + high priority notification
+      - "graduate"
+      - "fresh grad"
+      - "entry level"
+      - "junior"
+      - "trainee"
+      - "intern"
 
 notifications:
   ntfy_server: "https://ntfy.sh"
@@ -47,7 +58,7 @@ database:
   retention_days: 90
 
 ai:
-  enabled: false
+  enabled: false          # set to true to enable AI enrichment (urgency + summary)
   api_key: ""            # or set AI_API_KEY env var
   base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
   model: "qwen-plus"

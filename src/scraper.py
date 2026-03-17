@@ -132,6 +132,25 @@ class LinkedInScraper:
 
         return jobs
 
+    def fetch_description(self, job: Job) -> str:
+        """Fetch full job description from LinkedIn job detail page."""
+        url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job.uuid}"
+        html_content = self._get_with_retry(url)
+        if not html_content:
+            return ""
+
+        # Extract description from the detail page
+        desc = self._extract(
+            html_content,
+            r'class="description__text[^"]*"[^>]*>(.*?)</section>',
+        )
+        if not desc:
+            desc = self._extract(
+                html_content,
+                r'class="show-more-less-html__markup[^"]*"[^>]*>(.*?)</div>',
+            )
+        return self._clean(desc)
+
     def _extract(self, text: str, pattern: str) -> str:
         match = re.search(pattern, text, re.DOTALL)
         return match.group(1) if match else ""
